@@ -1,0 +1,88 @@
+version: "3"
+
+dotenv: [".env"]
+
+tasks:
+  serve_http:
+    deps:
+      - build
+    env:
+      AWS_STAGE: local
+      LOG_LEVEL: DEBUG
+      USER_HTTP_ADDR: ":3000"
+    cmds:
+      - |
+        cd ./bin/user/http
+        ./bootstrap
+  serve_event:
+    deps:
+      - build
+    env:
+      AWS_STAGE: local
+      LOG_LEVEL: DEBUG
+      USER_EVENT_ADDR: ":3001"
+    cmds:
+      - |
+        cd ./bin/user/subscriber
+        ./bootstrap
+  clean:
+    cmds:
+      - rm -rf ./bin/user ./dist/user ./temp/user
+  build:
+    deps:
+      - clean
+    env:
+      GOARCH: amd64
+      GOOS: linux
+      CGO_ENABLED: 0
+    cmds:
+      - |
+        mkdir -p ./bin/user/http ./dist/user/http ./temp/user/http
+        cp ./user/http/* ./temp/user/http
+        cp -r ./user/repository ./temp/user/http/repository
+        go build -ldflags="-s -w" -tags lambda.norpc -o ./bin/user/http/bootstrap ./temp/user/http
+        mkdir -p ./bin/user/subscriber ./dist/user/subscriber ./temp/user/subscriber
+        cp ./user/subscriber/* ./temp/user/subscriber
+        cp -r ./user/repository ./temp/user/subscriber/repository
+        cp -r ./user/service ./temp/user/subscriber/service
+        go build -ldflags="-s -w" -tags lambda.norpc -o ./bin/user/subscriber/bootstrap ./temp/user/subscriber
+        curl https://raw.githubusercontent.com/cirrostratus-cloud/auth/main/user/password_changed_email.html -o ./bin/user/subscriber/password_changed_email.html
+        curl https://raw.githubusercontent.com/cirrostratus-cloud/auth/main/user/password_recovered_email.html -o ./bin/user/subscriber/password_recovered_email.html
+        curl https://raw.githubusercontent.com/cirrostratus-cloud/auth/main/user/password_recovery_email.html -o ./bin/user/subscriber/password_recovery_email.html
+        curl https://raw.githubusercontent.com/cirrostratus-cloud/auth/main/user/welcome_email.html -o ./bin/user/subscriber/welcome_email.html
+        curl https://raw.githubusercontent.com/cirrostratus-cloud/auth/main/user/mail_confirmation.html -o ./bin/user/subscriber/mail_confirmation.html
+  deploy:
+    requires:
+      vars:
+        - AWS_STAGE
+        - LOG_LEVEL
+        - CIRROSTRATUS_AUTH_MODULE_NAME
+        - CIRROSTRATUS_AUTH_USER_TABLE
+        - AWS_DEFAULT_REGION
+        - AWS_REGION
+        - AWS_ACCESS_KEY_ID
+        - AWS_SECRET_ACCESS_KEY
+        - USER_MIN_PASSWORD_LENGTH
+        - USER_UPPER_CASE_REQUIRED
+        - USER_LOWER_CASE_REQUIRED
+        - USER_NUMBER_REQUIRED
+        - USER_SPECIAL_CHARACTER_REQUIRED
+    deps:
+      - build
+    cmds:
+      - |
+        cd ./terragrunt
+        terragrunt run-all apply --terragrunt-non-interactive
+        cd ..
+  undeploy:
+    cmds:
+      - |
+        cd ./terragrunt
+        terragrunt run-all destroy --terragrunt-non-interactive
+        cd ..
+  output:
+    cmds:
+      - |
+        cd ./terragrunt
+        terragrunt run-all output --terragrunt-non-interactive
+        cd ..
